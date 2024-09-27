@@ -61,6 +61,22 @@ namespace clad {
     return new (C) CXXNullPtrLiteralExpr(QT, noLoc);
   }
 
+
+//Support for synthesizing Complex types
+static Expr* synthesizeLiteral(QualType QT, ASTContext& C, llvm::APFloat realVal, llvm::APFloat imaginaryVal) {
+    const ComplexType* CT = QT->getAs<ComplexType>();
+    assert(CT && "Not a complex type."); //If the previous line returns a nullptr, not a complex type
+    SourceLocation noLoc;
+
+    Expr* realComponent = FloatingPointLiteral::Create(C, realVal, true, QT, noLoc);
+    Expr* imaginaryComponent = FloatingPointLiteral::Create(C, imaginaryVal, true, QT, noLoc);
+    llvm::SmallVector<Expr*, 2> Args;
+    Args.push_back(realComponent);
+    Args.push_back(imaginaryComponent);
+    return CXXConstructExpr::Create(C, QT, C.getTrivialTypeSourceInfo(QT), noLoc, Args);
+  }
+
+
   Expr* ConstantFolder::trivialFold(Expr* E) {
     Expr::EvalResult Result;
     if (E->EvaluateAsRValue(Result, m_Context)) {
@@ -154,7 +170,11 @@ namespace clad {
     } else if (QT->isRealFloatingType()) {
       llvm::APFloat APVal(C.getFloatTypeSemantics(QT), val);
       Result = clad::synthesizeLiteral(QT, C, APVal);
-    } else {
+    } else if (const ComplexType* CT = QT->getAs<ComplexType>()){
+      llvm::APFloat realVal(C.getFloatTypeSemantics(QT), static_cast<double>(val));
+      llvm::APFloat imaginaryVal(C.getFloatTypeSemantics(QT), 0.0);
+      Result = clad::synthesizeLiteral(QT, C, realVal, imaginaryVal);
+    }else{
       // FIXME: Handle other types, like Complex, Structs, typedefs, etc.
       // typecasting may be needed right now
       Result = ConstantFolder::synthesizeLiteral(C.IntTy, C, val);
